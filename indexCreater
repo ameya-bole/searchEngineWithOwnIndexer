@@ -1,0 +1,680 @@
+import os
+from os.path import join
+import re
+from bs4 import BeautifulSoup
+#import elasticsearch
+#from elasticsearch import client
+from collections import defaultdict
+import string
+import math
+import json
+import ntpath
+import glob
+from binascii import *
+from nltk.stem.snowball import SnowballStemmer
+#es = elasticsearch.Elasticsearch("localhost:9200", timeout=600, max_retries=2, revival_delay=0)
+#idx = elasticsearch.client.IndicesClient(es)
+
+queryResults = {}
+queryList = {}
+docLength = {}
+averageLength = 247
+totalDocs = 84678
+vocabulary = 178,050.0
+totalDocLength = 0
+totalTermFrequencyDict = {}
+#okapiTFDoc = defaultdict(dict)
+#okapiDocFinalScoreForQuery = defaultdict(dict)
+#tfIDFDocFinalScoreForQuery = defaultdict(dict)
+#laplaceSmoothingDocFinalScoreForQuery = defaultdict(dict)
+invertedList = defaultdict(list)
+termIdMap = {}
+docIdMap = {}
+mappingDict = {}
+fileNumber = 79
+stopwordsList = set()
+stemmedWordMap = {}
+docLength = {}
+
+
+
+def findTermTokenInDocuments():
+    #print type(termId)
+    
+    #print term
+    
+    path = "D:/Information Retreival/Assignment 1/AP89_DATA/AP_DATA/ap89_collection/"
+    listOfFiles = os.listdir(path);
+    
+    for i in listOfFiles:
+        f = open(join(path,i),"r").read()
+        documents = re.findall('<DOC>.*?</DOC>',f,re.DOTALL)        
+        i=0
+        #termList = open("D:/Information Retreival/Assignment 2/termList.txt","a")
+        #docList = open("D:/Information Retreival/Assignment 2/docList.txt","a")
+        for document in documents:
+            termPositions = []
+            docNumberField = re.search('<DOCNO>.*</DOCNO>',document)
+            #soup = BeautifulSoup(docNumberField.group())
+            #docNumber = soup.find('docno').text
+            print docNumberField.group()[8:-9]
+            docText = ""
+            docTextField = re.findall('<TEXT>.*?</TEXT>',document,re.DOTALL)
+            for text in docTextField:
+                #print type(text)
+                #soup2 = BeautifulSoup(text)
+                text = text[6:-7]
+                docText += text.strip().replace('\n',' ')
+            #docText = "123.123.123.123"
+            print docText
+ 
+def parseDocumentsToCreatePartialIndexType1():
+    global docLength
+    storeAllTerms()
+    storeAllDocs()
+    path = "D:/Information Retreival/Assignment 1/AP89_DATA/AP_DATA/ap89_collection/"
+    listOfFiles = os.listdir(path);
+    d=0
+    j=0
+    termDict = defaultdict(dict)
+    for i in listOfFiles:
+        f = open(join(path,i),"r").read()
+        documents = re.findall('<DOC>.*?</DOC>',f,re.DOTALL)        
+        #termList = open("D:/Information Retreival/Assignment 2/termList.txt","a")
+        #docList = open("D:/Information Retreival/Assignment 2/docList.txt","a")
+        for document in documents:
+            #termPositions = []
+            d += 1
+            docNumberField = re.search('<DOCNO>.*</DOCNO>',document)
+            #soup = BeautifulSoup(docNumberField.group())
+            docNumber = docNumberField.group()[8:-9]
+            #print docNumber.strip()
+            documentId = docIdMap[docNumber]
+            docText = ""
+            docTextField = re.findall('<TEXT>.*?</TEXT>',document,re.DOTALL)
+            for text in docTextField:
+                #print type(text)
+                text = text[6:-7]
+                docText += text.strip().replace('\n',' ')
+                #soup2 = BeautifulSoup(text)
+                #docText += str(soup2.find('text').text.strip().replace('\n',' '))
+            #docText = "123.123.123.123"
+            termPosition = 0
+            #uniqueTerms = 0
+            for token in re.finditer('\w+(\.?\w+)*', docText):
+                termPosition += 1
+                termId = termIdMap[str(token.group()).lower()]
+                #print type(token)
+                if termDict.has_key(long(termId)):
+                    dBlock = termDict[long(termId)]
+                    if dBlock.has_key(documentId):
+                        termPositions = dBlock[documentId]
+                        termPositions.append(termPosition)
+                        dBlock[documentId] = termPositions
+                    else:
+                        termPositions = []
+                        termPositions.append(termPosition)
+                        dBlock[documentId] = termPositions
+                    termDict[long(termId)] = dBlock
+                else:
+                    dBlock = {}
+                    termPositions = []
+                    termPositions.append(termPosition)
+                    dBlock[documentId] = termPositions
+                    termDict[long(termId)] = dBlock
+                    #uniqueTerms += 1
+            #break
+            docLength[documentId] = termPosition
+        if d > 950:
+            #print termDict
+            createPartialIndexFile(termDict, j, 1)
+            j=j+1
+            d=0
+            termDict = defaultdict(dict)  
+        #print j
+    #global invertedList
+    #print dBlock          
+    #invertedList[term] = dBlock
+    #global fileNumber
+    #fileNumber = j
+    createOneLargeIndexFile(1)
+    writeDocLength()
+
+def writeDocLength():
+    file = open("D:/Information Retreival/Assignment 2/docLength1.txt","w")
+    for key,value in docLength.iteritems():
+        file.write(str(key) + " " + str(value) + "\n")    
+         
+def parseDocumentsToCreatePartialIndexType2():
+    getAllStopwords()
+    storeAllTerms()
+    storeAllDocs()
+    path = "D:/Information Retreival/Assignment 1/AP89_DATA/AP_DATA/ap89_collection/"
+    listOfFiles = os.listdir(path);
+    d=0
+    j=0
+    termDict = defaultdict(dict)
+    for i in listOfFiles:
+        f = open(join(path,i),"r").read()
+        documents = re.findall('<DOC>.*?</DOC>',f,re.DOTALL)        
+        
+        
+        #termList = open("D:/Information Retreival/Assignment 2/termList.txt","a")
+        #docList = open("D:/Information Retreival/Assignment 2/docList.txt","a")
+        for document in documents:
+            #termPositions = []
+            d += 1
+            docNumberField = re.search('<DOCNO>.*</DOCNO>',document)
+            #soup = BeautifulSoup(docNumberField.group())
+            docNumber = docNumberField.group()[8:-9]
+            #print docNumber.strip()
+            documentId = docIdMap[docNumber]
+            docText = ""
+            docTextField = re.findall('<TEXT>.*?</TEXT>',document,re.DOTALL)
+            for text in docTextField:
+                #print type(text)
+                text = text[6:-7]
+                docText += text.strip().replace('\n',' ')
+            #docText = "123.123.123.123"
+            termPosition = 0
+            for token in re.finditer('\w+(\.?\w+)*', docText):
+                termPosition += 1
+                if str(token.group()).lower() not in stopwordsList:
+                    #print str(token.group()).lower()
+                    termId = termIdMap[str(token.group()).lower()]
+                    #print type(token)
+                    if termDict.has_key(long(termId)):
+                        dBlock = termDict[long(termId)]
+                        if dBlock.has_key(documentId):
+                            termPositions = dBlock[documentId]
+                            termPositions.append(termPosition)
+                            dBlock[documentId] = termPositions
+                        else:
+                            termPositions = []
+                            termPositions.append(termPosition)
+                            dBlock[documentId] = termPositions
+                        termDict[long(termId)] = dBlock
+                    else:
+                        dBlock = {}
+                        termPositions = []
+                        termPositions.append(termPosition)
+                        dBlock[documentId] = termPositions
+                        termDict[long(termId)] = dBlock
+            #break
+        if d > 950:
+            #print termDict
+            createPartialIndexFile(termDict, j, 2)
+            j=j+1
+            d=0
+            termDict = defaultdict(dict)  
+        #print j
+    #global invertedList
+    #print dBlock          
+    #invertedList[term] = dBlock
+    #global fileNumber
+    #fileNumber = j
+    createOneLargeIndexFile(2)
+    
+
+def parseDocumentsToCreatePartialIndexType3():
+    storeStemmedWords()
+    storeAllDocs()
+    stemmer = SnowballStemmer("english")
+    path = "D:/Information Retreival/Assignment 1/AP89_DATA/AP_DATA/ap89_collection/"
+    listOfFiles = os.listdir(path);
+    d=0
+    j=0
+    termDict = defaultdict(dict)
+    for i in listOfFiles:
+        f = open(join(path,i),"r").read()
+        documents = re.findall('<DOC>.*?</DOC>',f,re.DOTALL)        
+        
+        
+        #termList = open("D:/Information Retreival/Assignment 2/termList.txt","a")
+        #docList = open("D:/Information Retreival/Assignment 2/docList.txt","a")
+        for document in documents:
+            #termPositions = []
+            d += 1
+            docNumberField = re.search('<DOCNO>.*</DOCNO>',document)
+            #soup = BeautifulSoup(docNumberField.group())
+            docNumber = docNumberField.group()[8:-9]
+            #print docNumber.strip()
+            documentId = docIdMap[docNumber]
+            docText = ""
+            docTextField = re.findall('<TEXT>.*?</TEXT>',document,re.DOTALL)
+            for text in docTextField:
+                #print type(text)
+                text = text[6:-7]
+                docText += text.strip().replace('\n',' ')
+            #docText = "123.123.123.123"
+            termPosition = 0
+            for token in re.finditer('\w+(\.?\w+)*', docText):
+                termPosition += 1
+                stemmed_token = stemmer.stem(token.group())
+                #print stemmed_token
+                termId = stemmedWordMap[str(stemmed_token).lower()]
+                #print type(token)
+                if termDict.has_key(long(termId)):
+                    dBlock = termDict[long(termId)]
+                    if dBlock.has_key(documentId):
+                        termPositions = dBlock[documentId]
+                        termPositions.append(termPosition)
+                        dBlock[documentId] = termPositions
+                    else:
+                        termPositions = []
+                        termPositions.append(termPosition)
+                        dBlock[documentId] = termPositions
+                    termDict[long(termId)] = dBlock
+                else:
+                    dBlock = {}
+                    termPositions = []
+                    termPositions.append(termPosition)
+                    dBlock[documentId] = termPositions
+                    termDict[long(termId)] = dBlock
+            #break
+        if d > 950:
+            #print termDict
+            createPartialIndexFile(termDict, j, 3)
+            j=j+1
+            d=0
+            termDict = defaultdict(dict)  
+    createOneLargeIndexFile(3)
+
+def parseDocumentsToCreatePartialIndexType4():
+    getAllStopwords()
+    storeStemmedWords()
+    storeAllDocs()
+    stemmer = SnowballStemmer("english")
+    path = "D:/Information Retreival/Assignment 1/AP89_DATA/AP_DATA/ap89_collection/"
+    listOfFiles = os.listdir(path);
+    d=0
+    j=0
+    termDict = defaultdict(dict)
+    for i in listOfFiles:
+        f = open(join(path,i),"r").read()
+        documents = re.findall('<DOC>.*?</DOC>',f,re.DOTALL)        
+        
+        
+        #termList = open("D:/Information Retreival/Assignment 2/termList.txt","a")
+        #docList = open("D:/Information Retreival/Assignment 2/docList.txt","a")
+        for document in documents:
+            #termPositions = []
+            d += 1
+            docNumberField = re.search('<DOCNO>.*</DOCNO>',document)
+            soup = BeautifulSoup(docNumberField.group())
+            docNumber = soup.find('docno').text
+            #print docNumber.strip()
+            documentId = docIdMap[str(docNumber.strip())]
+            docText = ""
+            docTextField = re.findall('<TEXT>.*?</TEXT>',document,re.DOTALL)
+            for text in docTextField:
+                #print type(text)
+                soup2 = BeautifulSoup(text)
+                docText += str(soup2.find('text').text.strip().replace('\n',' '))
+            #docText = "123.123.123.123"
+            termPosition = 0
+            for token in re.finditer('\w+(\.?\w+)*', docText):
+                termPosition += 1
+                if str(token.group()).lower() not in stopwordsList: 
+                    stemmed_token = stemmer.stem(token.group())
+                    #print stemmed_token
+                    termId = stemmedWordMap[str(stemmed_token).lower()]
+                    #print type(token)
+                    if termDict.has_key(long(termId)):
+                        dBlock = termDict[long(termId)]
+                        if dBlock.has_key(documentId):
+                            termPositions = dBlock[documentId]
+                            termPositions.append(termPosition)
+                            dBlock[documentId] = termPositions
+                        else:
+                            termPositions = []
+                            termPositions.append(termPosition)
+                            dBlock[documentId] = termPositions
+                        termDict[long(termId)] = dBlock
+                    else:
+                        dBlock = {}
+                        termPositions = []
+                        termPositions.append(termPosition)
+                        dBlock[documentId] = termPositions
+                        termDict[long(termId)] = dBlock
+            #break
+        if d > 950:
+            #print termDict
+            createPartialIndexFile(termDict, j, 4)
+            j=j+1
+            d=0
+            termDict = defaultdict(dict)  
+    createOneLargeIndexFile(4)    
+
+
+
+def createPartialIndexFile(partialInvertedList, fileNumber, type):
+    if type == 1:
+        indexFilePath = "D:/Information Retreival/Assignment 2/Index Files/IndexFiles/"
+        catalogFilePath = "D:/Information Retreival/Assignment 2/Index Files/CatalogFiles/"
+    elif type == 2:
+        indexFilePath = "D:/Information Retreival/Assignment 2/Index Files2/IndexFiles/"
+        catalogFilePath = "D:/Information Retreival/Assignment 2/Index Files2/CatalogFiles/"
+    elif type == 3:
+        indexFilePath = "D:/Information Retreival/Assignment 2/Index Files3/IndexFiles/"
+        catalogFilePath = "D:/Information Retreival/Assignment 2/Index Files3/CatalogFiles/"
+    else:
+        indexFilePath = "D:/Information Retreival/Assignment 2/Index Files4/IndexFiles/"
+        catalogFilePath = "D:/Information Retreival/Assignment 2/Index Files4/CatalogFiles/" 
+    #global invertedList
+    indexFileNameWithoutPath = str(fileNumber) + " indexFile.txt"
+    catalogFileNameWithoutPath = str(fileNumber) + " catalogFile.txt"
+    indexFileName = indexFilePath + indexFileNameWithoutPath
+    catalogFileName = catalogFilePath + catalogFileNameWithoutPath
+    indexFile = open(indexFileName,"w")
+    catalogueFile = open(catalogFileName,"w")
+    global mappingDict
+    mappingDict[catalogFileNameWithoutPath] = indexFileNameWithoutPath
+    
+    for term in sorted(partialInvertedList):
+        indexFile.write(str(term) + " ")
+        catalogueFile.write(str(term) + " ")
+        startingPosition = indexFile.tell()
+        #print type(startingPosition)
+        catalogueFile.write(str(startingPosition) + " ")
+        dBlocks = partialInvertedList[term]
+        
+        for documentId, termPositions in dBlocks.iteritems():
+            indexFile.write(":" + str(documentId))
+            for position in termPositions:
+                indexFile.write(" " + str(position))
+            indexFile.write(":")
+        
+        indexFile.write("\n")
+        endingPosition = indexFile.tell()
+        catalogueFile.write(str(endingPosition) + "\n")
+        
+    #mergeFiles()
+
+def createOneLargeIndexFile(type):
+    if type == 1:
+        indexFilePath = "D:/Information Retreival/Assignment 2/Index Files/IndexFiles/"
+        catalogFilePath = "D:/Information Retreival/Assignment 2/Index Files/CatalogFiles/"
+    elif type == 2:
+        indexFilePath = "D:/Information Retreival/Assignment 2/Index Files2/IndexFiles/"
+        catalogFilePath = "D:/Information Retreival/Assignment 2/Index Files2/CatalogFiles/"
+    elif type == 3:
+        indexFilePath = "D:/Information Retreival/Assignment 2/Index Files3/IndexFiles/"
+        catalogFilePath = "D:/Information Retreival/Assignment 2/Index Files3/CatalogFiles/"
+    else:
+        indexFilePath = "D:/Information Retreival/Assignment 2/Index Files4/IndexFiles/"
+        catalogFilePath = "D:/Information Retreival/Assignment 2/Index Files4/CatalogFiles/"
+    #catalogFilePath = "D:/Information Retreival/Assignment 2/Index Files/CatalogFiles"
+    listOfCatalogFiles = os.listdir(catalogFilePath);
+    i = len(listOfCatalogFiles)
+    
+    path = catalogFilePath + "*.txt"
+    #print allFiles
+    newest = max(glob.iglob(path), key=os.path.getctime)
+    filename = ntpath.basename(newest)
+    print filename
+    
+    while(len(listOfCatalogFiles) > 1):
+        file1 = listOfCatalogFiles.pop()
+        file2 = listOfCatalogFiles.pop()
+        mergeFiles(file1, file2, type)
+        newest = max(glob.iglob(path), key=os.path.getctime)
+        newFilename = ntpath.basename(newest)
+        listOfCatalogFiles.append(newFilename)
+        
+        
+
+    
+def mergeFiles(cataLogFile1,cataLogFile2, type):
+    if type == 1:
+        indexFilePath = "D:/Information Retreival/Assignment 2/Index Files/IndexFiles/"
+        catalogFilePath = "D:/Information Retreival/Assignment 2/Index Files/CatalogFiles/"
+    elif type == 2:
+        indexFilePath = "D:/Information Retreival/Assignment 2/Index Files2/IndexFiles/"
+        catalogFilePath = "D:/Information Retreival/Assignment 2/Index Files2/CatalogFiles/"
+    elif type == 3:
+        indexFilePath = "D:/Information Retreival/Assignment 2/Index Files3/IndexFiles/"
+        catalogFilePath = "D:/Information Retreival/Assignment 2/Index Files3/CatalogFiles/"
+    else:
+        indexFilePath = "D:/Information Retreival/Assignment 2/Index Files4/IndexFiles/"
+        catalogFilePath = "D:/Information Retreival/Assignment 2/Index Files4/CatalogFiles/"
+    global fileNumber
+    global mappingDict
+    newIndexFileNameWithoutPath = str(fileNumber) + " indexFile.txt"
+    newCatalogFileNameWithoutPath = str(fileNumber) + " catalogFile.txt"
+    mappingDict[newCatalogFileNameWithoutPath] = newIndexFileNameWithoutPath
+    newIndexFileName = indexFilePath + newIndexFileNameWithoutPath
+    newCatalogFileName = catalogFilePath + newCatalogFileNameWithoutPath
+    newIndexFile = open(newIndexFileName,"a")
+    newCatalogFile = open(newCatalogFileName,"a")
+    #for files in mappingDict.keys():
+    #   print files
+    #catalogFilePath = "D:/Information Retreival/Assignment 2/Index Files/CatalogFiles/"
+    correspondingIndexFile1 = mappingDict[cataLogFile1]
+    correspondingIndexFile2 = mappingDict[cataLogFile2]
+    
+    #indexFilePath = "D:/Information Retreival/Assignment 2/Index Files/IndexFiles/"
+
+    file1 = open(join(catalogFilePath,cataLogFile1),"r")
+    file2 = open(join(catalogFilePath,cataLogFile2),"r")
+    #filename1 = ntpath.basename(join(catalogFilePath,i))
+    #filename2 = ntpath.basename(join(catalogFilePath,j))
+    
+    ifile1 = open(join(indexFilePath,correspondingIndexFile1),"r")
+    ifile2 = open(join(indexFilePath,correspondingIndexFile2),"r")
+    
+    file1Dict = {}
+    file2Dict = {}
+    
+    file1Lines = file1.read().split("\n")
+    for line in file1Lines:
+        if line == "":
+            break
+        else:
+            lineContent = line.split(" ")
+            endingOffset = lineContent.pop()
+            #print endingOffset
+            startingOffset = lineContent.pop()
+            term = int(lineContent.pop())
+            offsets = []
+            offsets.append(startingOffset)
+            offsets.append(endingOffset)
+            file1Dict[term] = offsets
+     
+    file2Lines = file2.read().split("\n")
+    for line in file2Lines:
+        if line == "":
+            break
+        else:
+            lineContent = line.split(" ")
+            endingOffset = lineContent.pop()
+            #print endingOffset
+            startingOffset = lineContent.pop()
+            term = int(lineContent.pop())
+            offsets = []
+            offsets.append(startingOffset)
+            offsets.append(endingOffset)
+            file2Dict[term] = offsets
+    
+    #print type(file1)
+    
+    mergingProcess(file1Dict, file2Dict , file1, file2, ifile1, ifile2, newIndexFile, newCatalogFile)
+    fileNumber += 1
+    
+def mergingProcess(file1Dict, file2Dict, catalogFileName1, catalogFileName2, indexFileName1, indexFileName2, newIndexFile, newCatalogFile):
+    list1 = file1Dict.keys()
+    list2 = file2Dict.keys()
+    i=0
+    j=0
+    list1.sort()
+    list2.sort()
+    
+    while(len(list1) > i and len(list2) > j):
+        #print list1[i], list2[j]
+        if list1[i] < list2[j]:
+            readFile(list1[i], file1Dict, 0, file2Dict, catalogFileName1, catalogFileName2, indexFileName1, indexFileName2, newIndexFile, newCatalogFile)
+            i += 1
+        elif list1[i] > list2[j]:
+            readFile(list2[j], file2Dict, 0, file1Dict, catalogFileName2, catalogFileName1, indexFileName2, indexFileName1, newIndexFile, newCatalogFile)
+            j += 1
+        elif list1[i] == list2[j]:
+            readFile(list1[i], file1Dict, list2[j], file2Dict, catalogFileName1, catalogFileName2, indexFileName1, indexFileName2, newIndexFile, newCatalogFile)
+            i += 1
+            j += 1
+            
+    while(len(list1) > i):
+        readFile(list1[i], file1Dict, 0, file2Dict, catalogFileName1, catalogFileName2, indexFileName1, indexFileName2, newIndexFile, newCatalogFile)
+        i += 1
+    
+    while(len(list2) > j):
+        readFile(list2[j], file2Dict, 0, file1Dict, catalogFileName2, catalogFileName1, indexFileName2, indexFileName1, newIndexFile, newCatalogFile)
+        j += 1    
+            
+def readFile(termId1, file1Dict, termId2, file2Dict, catalogFileName1, catalogFileName2, indexFileName1, indexFileName2, newIndexFile, newCatalogFile):
+    if long(termId2) == 0:
+        mergeOnlyOneFile(termId1, file1Dict, catalogFileName1, indexFileName1, newIndexFile, newCatalogFile)
+    else:
+        mergeTwoFiles(termId1, termId2, file1Dict, file2Dict, catalogFileName1, catalogFileName2, indexFileName1, indexFileName2, newIndexFile, newCatalogFile)
+        
+def mergeOnlyOneFile(termId, file1Dict, catalogFileName1, indexFileName1, newIndexFile, newCatalogFile):
+    offsets = file1Dict[termId]
+    #print offsets
+    startingOffset = offsets.pop(0)
+    #print startingOffset
+    endingOffset = offsets.pop(0)
+    indexFileName1.seek(long(startingOffset))
+    partialInvertedList = indexFileName1.read(long(endingOffset) - 1 - long(startingOffset))
+    #print partialInvertedList
+    newIndexFile.write(str(termId) + " ")
+    newCatalogFile.write(str(termId) + " ")
+    newStartingOffset = newIndexFile.tell()
+    newCatalogFile.write(str(newStartingOffset) + " ")
+    newIndexFile.write(partialInvertedList)
+    newEndingOffset = newIndexFile.tell()
+    newCatalogFile.write(str(newEndingOffset) + "\n")
+            
+            
+def mergeTwoFiles(termId1, termId2, file1Dict, file2Dict, catalogFileName1, catalogFileName2, indexFileName1, indexFileName2, newIndexFile, newCatalogFile):
+    offsets1 = file1Dict[termId1]
+    offsets2 = file2Dict[termId2]
+    #print offsets
+    startingOffset1 = offsets1.pop(0)
+    #print startingOffset
+    endingOffset1 = offsets1.pop(0)
+    startingOffset2 = offsets2.pop(0)
+    #print startingOffset
+    endingOffset2 = offsets2.pop(0)
+    indexFileName1.seek(long(startingOffset1))
+    partialInvertedList = indexFileName1.read(long(endingOffset1) - 2 - long(startingOffset1))
+    indexFileName2.seek(long(startingOffset2))
+    partialInvertedList += indexFileName2.read(long(endingOffset2) - 1 - long(startingOffset2))
+    newIndexFile.write(str(termId1) + " ")
+    newCatalogFile.write(str(termId1) + " ")
+    newStartingOffset = newIndexFile.tell()
+    newCatalogFile.write(str(newStartingOffset) + " ")
+    newIndexFile.write(partialInvertedList)
+    newEndingOffset = newIndexFile.tell()
+    newCatalogFile.write(str(newEndingOffset) + "\n")
+    
+    
+def storeAllTerms():
+    global termIdMap
+    file = open("D:/Information Retreival/Assignment 2/termList.txt","r")
+    for line in file:
+        lengths = line.split();
+        #print type(lengths[0])
+        termIdMap[lengths[1]] = lengths[0]
+    #print termIdMap
+
+def storeAllDocs():
+    global docIdMap
+    file = open("D:/Information Retreival/Assignment 2/docList.txt","r")
+    for line in file:
+        lengths = line.split();
+        #print type(lengths[0])
+        docIdMap[lengths[1]] = lengths[0]
+
+
+def getAllStopwords():
+    global stopwordsList
+    file = open("D:/Information Retreival/Assignment 2/stoplist.txt","r")
+    for line in file:
+        stopwordsList.add(line.strip())
+    #for word in stopwordsList:
+        #print type(word)       
+        
+def readIndexFile():
+    dict = {}
+    file = open("D:/Information Retreival/Assignment 2/Index Files/IndexFiles/157 indexFile.txt","r").read()
+    file2 = open("D:/Information Retreival/Assignment 2/Index Files/IndexFiles/test.txt","w")
+    
+    lines = file.split("\n")
+    docText = ""
+    i=0
+    for line in lines:
+        if i==1:
+            content = line.split(" ")
+            termId = content.pop(0)
+            
+            docTextField = re.findall('<DBLOCK>.*?</DBLOCK>',line,re.DOTALL)
+            for text in docTextField:
+                    #print type(text)
+                    soup2 = BeautifulSoup(text)
+                    docText += str(soup2.find('dblock').text.strip().replace('\n',' '))
+            #print docText
+            file2.write(termId + " ")
+            file2.write(docText + "\n")
+        i += 1
+
+def storeStemmedWords():
+    id = 0
+    i = 0
+    global stemmedWordMap
+    stemmer = SnowballStemmer("english")
+    file = open("D:/Information Retreival/Assignment 2/termList.txt","r").read()
+    #
+    lines = file.split("\n")
+    for line in lines:
+        #i += 1
+        #print i
+        lengths = line.split();
+        stemmed_token = stemmer.stem(lengths[1])
+        if str(stemmed_token) not in stemmedWordMap.keys():
+            id += 1
+            stemmedWordMap[str(stemmed_token)] = id
+    
+    stemmed_file = open("D:/Information Retreival/Assignment 2/stemmedtermList.txt","w")
+    
+    for token, id in stemmedWordMap.iteritems():
+        stemmed_file.write(str(id) + " " + str(token) + "\n")
+        
+def convertToBinary():
+    file = open("D:/Information Retreival/Assignment 2/Index Files/IndexFiles/7 indexFile.txt","r").read()
+    test = open("D:/Information Retreival/Assignment 2/Index Files/IndexFiles/rest.txt","w")
+    str_one = ""
+    lines = file.split("\n")
+    for line in lines:
+        str_one += a2b_uu(line) + "\n"
+    test.write(str_one)
+            
+def loadIndices():
+    #deleteIndex()
+    #createIndex()
+    #parseDocuments()
+    #parseDocumentsToTokenize()
+    #parseDocumentsToCreatePartialIndexType1()
+    parseDocumentsToCreatePartialIndexType2()
+    #parseDocumentsToCreatePartialIndexType3()
+    #parseDocumentsToCreatePartialIndexType4()
+    #createOneLargeIndexFile(2)
+    #mergeFiles()
+    #createOneLargeIndexFile()
+    #readIndexFile()
+    #convertToBinary()
+    #storeStemmedWords()
+    #findTermTokenInDocuments()
+    
+
+
+loadIndices()
+
